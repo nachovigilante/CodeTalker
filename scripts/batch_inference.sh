@@ -130,6 +130,79 @@ fi
 echo "Found ${#AUDIO_FILES[@]} audio file(s) in '$AUDIO_DIR'"
 
 # ──────────────────────────────────────────────
+# Reorder files for prefix diversity
+# ──────────────────────────────────────────────
+# Files sharing a prefix (name without trailing _DIGITS) are part of the
+# same sequence. We interleave prefixes so early results are representative,
+# prioritising prefixes with fewer existing outputs.
+PRE_EXISTING=0
+REORDERED=()
+_first_line=1
+while IFS= read -r line; do
+    if [[ $_first_line -eq 1 ]]; then
+        PRE_EXISTING="$line"
+        _first_line=0
+        continue
+    fi
+    [[ -n "$line" ]] && REORDERED+=("$line")
+done < <(printf '%s\n' "${AUDIO_FILES[@]}" | .venv/bin/python -c "
+import os, sys, re
+from collections import defaultdict
+
+files = [l.strip() for l in sys.stdin if l.strip()]
+out_dir, condition, subject = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def get_prefix(name):
+    # TalkingHead-1KH: {id}_{seg}_S{start}_E{end}_L..._T..._R..._B...
+    m = re.search(r'_\d+_S\d+_E\d+', name)
+    if m:
+        return name[:m.start()]
+    # Fallback: strip trailing _DIGITS (e.g. speaker1_001 -> speaker1)
+    return re.sub(r'_\d+$', '', name)
+
+def get_audio_name(fp):
+    return os.path.splitext(os.path.basename(fp))[0]
+
+def output_exists(audio_name):
+    return os.path.isfile(os.path.join(out_dir, f'{audio_name}_{subject}_condition_{condition}_audio.mp4'))
+
+existing_count = defaultdict(int)
+for f in files:
+    name = get_audio_name(f)
+    if output_exists(name):
+        existing_count[get_prefix(name)] += 1
+
+groups = defaultdict(list)
+order = []
+for f in files:
+    p = get_prefix(get_audio_name(f))
+    if p not in groups:
+        order.append(p)
+    groups[p].append(f)
+
+print(f'Prefix groups ({len(order)} unique):', file=sys.stderr)
+for p in sorted(order):
+    e = existing_count.get(p, 0)
+    print(f'  {p}: {len(groups[p])} input, {e} existing output(s)', file=sys.stderr)
+
+scheduled = dict(existing_count)
+result = []
+while any(groups[p] for p in order):
+    best = min((p for p in order if groups[p]), key=lambda p: scheduled.get(p, 0))
+    result.append(groups[best].pop(0))
+    scheduled[best] = scheduled.get(best, 0) + 1
+
+# First line: total pre-existing output count
+print(sum(existing_count.values()))
+for f in result:
+    print(f)
+" "$OUTPUT_DIR" "$CONDITION" "$SUBJECT")
+
+if [[ ${#REORDERED[@]} -gt 0 ]]; then
+    AUDIO_FILES=("${REORDERED[@]}")
+fi
+
+# ──────────────────────────────────────────────
 # Process each audio file
 # ──────────────────────────────────────────────
 TOTAL=${#AUDIO_FILES[@]}
@@ -153,20 +226,21 @@ for idx in "${!AUDIO_FILES[@]}"; do
     # Check if output already exists
     if [[ "$SKIP_EXISTING" -eq 1 ]]; then
         if [[ -f "${OUTPUT_DIR}/${out_name}" ]]; then
-            echo "[$((PROCESSED + SKIPPED + 1))/$TOTAL] SKIP  (exists): $audio_name"
+            echo "[$((PRE_EXISTING + PROCESSED + SKIPPED + 1))/$TOTAL] SKIP  (exists): $audio_name"
             SKIPPED=$((SKIPPED + 1))
             continue
         fi
     fi
 
     # ETA estimate
-    remaining=$((TOTAL - PROCESSED - SKIPPED - FAILED))
+    GLOBAL_DONE=$((PRE_EXISTING + PROCESSED))
+    remaining=$((TOTAL - GLOBAL_DONE - SKIPPED - FAILED))
     if [[ $PROCESSED -gt 0 ]]; then
         avg=$((TOTAL_PROCESSING_TIME / PROCESSED))
         eta=$((avg * remaining))
-        echo "[$((PROCESSED + SKIPPED + 1))/$TOTAL] Processing: $audio_name  (avg $(fmt_duration $avg)/file, ETA $(fmt_duration $eta))"
+        echo "[$((GLOBAL_DONE + 1))/$TOTAL] Processing: $audio_name  (avg $(fmt_duration $avg)/file, ETA $(fmt_duration $eta))"
     else
-        echo "[$((PROCESSED + SKIPPED + 1))/$TOTAL] Processing: $audio_name"
+        echo "[$((GLOBAL_DONE + 1))/$TOTAL] Processing: $audio_name"
     fi
 
     FILE_START=$(date +%s)
@@ -209,6 +283,7 @@ BATCH_ELAPSED=$((BATCH_END - BATCH_START))
 echo ""
 echo "===== Batch complete ====="
 echo "  Total:        $TOTAL"
+echo "  Pre-existing: $PRE_EXISTING"
 echo "  Processed:    $PROCESSED"
 echo "  Skipped:      $SKIPPED"
 echo "  Failed:       $FAILED"
