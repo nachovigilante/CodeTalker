@@ -15,10 +15,18 @@ cv2.ocl.setUseOpenCL(False)
 cv2.setNumThreads(0)
 cfg = get_parser()
 
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+elif torch.backends.mps.is_available():
+    device = torch.device('mps')
+else:
+    device = torch.device('cpu')
+
 
 import tempfile
 from subprocess import call
-os.environ['PYOPENGL_PLATFORM'] = 'osmesa' #egl
+if 'PYOPENGL_PLATFORM' not in os.environ and os.uname().sysname != 'Darwin':
+    os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
 import pyrender
 import trimesh
 from psbody.mesh import Mesh
@@ -107,9 +115,9 @@ def render_mesh_helper(args,mesh, t_center, rot=np.zeros(3), tex_img=None, z_off
 
 def main():
     global cfg
+    cfg.device = str(device)
     model = get_model(cfg)
-    # if torch.cuda.is_available():
-    model = model.cuda()
+    model = model.to(device)
 
     if os.path.isfile(cfg.model_path):
         print("=> loading checkpoint '{}'".format(cfg.model_path))
@@ -143,12 +151,12 @@ def test(model, wav_file, save_folder, condition, subject):
     iter = train_subjects_list.index(condition)
     one_hot = one_hot_labels[iter]
     one_hot = np.reshape(one_hot,(-1,one_hot.shape[0]))
-    one_hot = torch.FloatTensor(one_hot).to(device='cuda')
+    one_hot = torch.FloatTensor(one_hot).to(device=device)
 
     temp = templates[subject]
     template = temp.reshape((-1))
     template = np.reshape(template,(-1,template.shape[0]))
-    template = torch.FloatTensor(template).to(device='cuda')
+    template = torch.FloatTensor(template).to(device=device)
 
 
     test_name = os.path.basename(wav_file).split(".")[0]
@@ -159,7 +167,7 @@ def test(model, wav_file, save_folder, condition, subject):
     processor = Wav2Vec2Processor.from_pretrained(cfg.wav2vec2model_path)
     audio_feature = np.squeeze(processor(speech_array,sampling_rate=16000).input_values)
     audio_feature = np.reshape(audio_feature,(-1,audio_feature.shape[0]))
-    audio_feature = torch.FloatTensor(audio_feature).to(device='cuda')
+    audio_feature = torch.FloatTensor(audio_feature).to(device=device)
 
 
 

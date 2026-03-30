@@ -1,2 +1,6 @@
 *.pth.tar
 __pycache__/
+.claude/
+.venv/
+uv.lock
+*.pkl

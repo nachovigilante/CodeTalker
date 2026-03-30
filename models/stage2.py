@@ -15,7 +15,7 @@ class CodeTalker(BaseModel):
         """
         self.args = args
         self.dataset = args.dataset
-        self.audio_encoder = Wav2Vec2Model.from_pretrained(args.wav2vec2model_path)
+        self.audio_encoder = Wav2Vec2Model.from_pretrained(args.wav2vec2model_path, attn_implementation="eager")
         # wav2vec 2.0 weights initialization
         self.audio_encoder.feature_extractor._freeze_parameters()
         self.audio_feature_map = nn.Linear(768, args.feature_dim)

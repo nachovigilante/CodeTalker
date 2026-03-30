@@ -1,0 +1,8 @@
+LICENSE
+README.md
+pyproject.toml
+codetalker.egg-info/PKG-INFO
+codetalker.egg-info/SOURCES.txt
+codetalker.egg-info/dependency_links.txt
+codetalker.egg-info/requires.txt
+codetalker.egg-info/top_level.txt

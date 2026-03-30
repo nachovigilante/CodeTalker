@@ -17,7 +17,8 @@ import tempfile
 import numpy as np
 from subprocess import call
 import argparse
-os.environ['PYOPENGL_PLATFORM'] = 'osmesa' #egl
+if 'PYOPENGL_PLATFORM' not in os.environ and os.uname().sysname != 'Darwin':
+    os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
 import pyrender
 import trimesh
 from psbody.mesh import Mesh
