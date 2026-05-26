@@ -18,7 +18,10 @@ from transformers import Wav2Vec2Processor
 
 from base.utilities import get_parser
 from models import get_model
+from models.utils import init_biased_mask, PeriodicPositionalEncoding
 from base.baseTrainer import load_state_dict
+
+MAX_SEQ_LEN = 2048  # default 600 caps audio at ~20s; bump to allow longer clips
 
 cfg = get_parser()
 
@@ -52,6 +55,14 @@ def main():
     print(f"=> loading checkpoint '{cfg.model_path}'")
     checkpoint = torch.load(cfg.model_path, map_location=lambda s, l: s.cpu())
     load_state_dict(model, checkpoint['state_dict'], strict=False)
+
+    # The default model caps sequence length at 600 frames (~20s at 30 fps).
+    # Rebuild biased_mask and PPE for longer audio; both are deterministic
+    # (sinusoidal/ALiBi), so it's safe to extend after loading the checkpoint.
+    model.biased_mask = init_biased_mask(n_head=4, max_seq_len=MAX_SEQ_LEN, period=cfg.period)
+    new_ppe = PeriodicPositionalEncoding(cfg.feature_dim, period=cfg.period, max_seq_len=MAX_SEQ_LEN).to(device)
+    model.PPE = new_ppe
+
     model.eval()
     print(f"=> loaded checkpoint")
 
